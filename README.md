@@ -11,7 +11,7 @@ The lab environment consists of two local Ubuntu Server Virtual Machines:
 * `setup_lab.yml`: The Ansible playbook containing the automated setup instructions for both machines.
 * `inventory.ini`: The target map containing the IP addresses of the virtual machines.
 
-## 🚀 How to Deploy (Automated via Ansible)
+## How to Deploy (Automated via Ansible)
 
 1. Ensure Ansible is installed on your control machine (`sudo apt install ansible`).
 2. Update `inventory.ini` with the correct IP addresses for your `[splunk]` and `[webserver]` VMs.

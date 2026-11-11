@@ -29,3 +29,5 @@ To manually verify or log into the Victim Web Server for debugging and telemetry
 * **Check SSH Status:** `sudo systemctl status ssh`
 * **Verify Audit Logging:** `sudo auditctl -l`
 * **Tail Laurel Audit Logs:** `tail -f /var/log/laurel/audit.log`
+
+* <img width="1920" height="535" alt="Screenshot from 2026-11-11 12-51-48" src="https://github.com/user-attachments/assets/a1b050a3-9798-4e00-90fe-9b96cdae7e9b" />
